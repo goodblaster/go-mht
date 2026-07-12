@@ -1,0 +1,33 @@
+From: <Saved by Blink>
+Snapshot-Content-Location: https://example.com/
+Subject: Example Domain
+Date: Mon, 20 Jan 2025 10:00:00 -0700
+MIME-Version: 1.0
+Content-Type: multipart/related;
+	type="text/html";
+	boundary="----MultipartBoundary--abc123XYZ----"
+
+
+------MultipartBoundary--abc123XYZ----
+Content-Type: text/html
+Content-ID: <frame-0001@mhtml.blink>
+Content-Transfer-Encoding: quoted-printable
+Content-Location: https://example.com/
+
+<html>
+<head><title>Example</title></head>
+<body>
+<p>1 + 1 =3D 2</p>
+<img src=3D"https://example.com/pixel.png">
+</body>
+</html>
+
+------MultipartBoundary--abc123XYZ----
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-Location: https://example.com/pixel.png
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6
+kgAAAABJRU5ErkJggg==
+
+------MultipartBoundary--abc123XYZ------

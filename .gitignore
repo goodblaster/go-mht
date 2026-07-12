@@ -1,0 +1,10 @@
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Local MHT samples and round-trip outputs (test fixtures live in testdata/)
+/*.mht
