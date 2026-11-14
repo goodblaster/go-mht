@@ -15,18 +15,29 @@ import (
 // when it stops at an intermediate boundary and io.EOF when it stops at the
 // closing boundary or the end of input; in both cases the section is valid.
 func Scan(scanner *bufio.Scanner, boundary string, section *Section) error {
-	if err := headers.Scan(scanner, &section.Headers); err != nil {
+	layout, err := headers.ScanLayout(scanner, &section.Headers)
+	section.layout = layout
+	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return io.EOF
 		}
 		return errors.Wrap(err, "failed to scan section headers")
 	}
 
-	encoding := bodies.TransferEncoding(section.Headers.Get("Content-Transfer-Encoding"))
-
 	var body strings.Builder
-	err := bodies.Scan(scanner, boundary, encoding, &body)
+	err = bodies.Scan(scanner, boundary, section.encoding(), &body)
 	section.Body = body.String()
+
+	// The line break before a boundary belongs to the boundary, not to the
+	// content. Dropping it leaves Body holding exactly the content, which
+	// Write then terminates again. (Base64 bodies hold no line breaks.)
+	if !section.IsBase64() {
+		if trimmed, found := strings.CutSuffix(section.Body, "\r\n"); found {
+			section.Body = trimmed
+		} else {
+			section.Body = strings.TrimSuffix(section.Body, "\n")
+		}
+	}
 
 	if err != nil {
 		if errors.Is(err, io.EOF) {

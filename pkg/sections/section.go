@@ -3,9 +3,8 @@
 package sections
 
 import (
-	"bytes"
 	"io"
-	"mime/quotedprintable"
+	"maps"
 	"net/textproto"
 
 	"github.com/goodblaster/errors"
@@ -13,12 +12,18 @@ import (
 	"github.com/goodblaster/go-mht/pkg/headers"
 )
 
-// Section is a single multipart section. Body holds the decoded content:
-// text for quoted-printable sections, the undecoded base64 string (without
-// line breaks) for base64 sections.
+// Section is a single multipart section. Body holds the content, without
+// the line break that precedes the next boundary: decoded text for
+// quoted-printable sections, the undecoded base64 string (without line
+// breaks) for base64 sections, and the bytes as is for identity encodings
+// (7bit, 8bit, binary).
 type Section struct {
 	Headers textproto.MIMEHeader `json:"headers"`
 	Body    string               `json:"content"`
+
+	// layout remembers how the headers were written in the source so that
+	// untouched headers are written back byte for byte.
+	layout *headers.Layout
 }
 
 // New returns an empty Section with initialized headers.
@@ -30,22 +35,21 @@ func New() *Section {
 
 // Write writes the section (headers, blank line, encoded body) to writer.
 // The opening boundary is written by the caller. If the section has no
-// Content-Transfer-Encoding header, one is added, defaulting to
-// quoted-printable — some ingestion paths strip it.
+// Content-Transfer-Encoding header, the output declares quoted-printable —
+// some ingestion paths strip the header. The section itself is not modified.
 func (section *Section) Write(writer io.Writer) error {
 	header := section.Headers
 
 	if header.Get("Content-Transfer-Encoding") == "" {
+		header = maps.Clone(header)
+		if header == nil {
+			header = make(textproto.MIMEHeader)
+		}
 		header.Set("Content-Transfer-Encoding", string(bodies.QuotedPrintable))
 	}
 
-	if err := headers.Ordered(header, func(key string, values []string) error {
-		if err := headers.Write(writer, key, values); err != nil {
-			return errors.Wrap(err, "failed to write headers")
-		}
-		return nil
-	}); err != nil {
-		return err
+	if err := headers.WriteAll(writer, header, section.layout); err != nil {
+		return errors.Wrap(err, "failed to write headers")
 	}
 
 	// Blank line separating headers from body.
@@ -63,8 +67,9 @@ func (section *Section) Write(writer io.Writer) error {
 			return errors.Wrap(err, "failed to write quoted-printable body")
 		}
 	default:
-		// Identity encodings (7bit, 8bit, binary): body is written verbatim.
-		if _, err := io.WriteString(writer, section.Body); err != nil {
+		// Identity encodings (7bit, 8bit, binary): body is written verbatim,
+		// followed by the line break that precedes the next boundary.
+		if _, err := io.WriteString(writer, section.Body+"\r\n"); err != nil {
 			return errors.Wrap(err, "failed to write raw body")
 		}
 	}
@@ -72,17 +77,22 @@ func (section *Section) Write(writer io.Writer) error {
 	return nil
 }
 
+// encoding returns the section's normalized Content-Transfer-Encoding.
+func (section *Section) encoding() bodies.TransferEncoding {
+	return bodies.ParseTransferEncoding(section.Headers.Get("Content-Transfer-Encoding"))
+}
+
 // IsBase64 reports whether the section body is base64 encoded.
 func (section *Section) IsBase64() bool {
-	return section.Headers.Get("Content-Transfer-Encoding") == "base64"
+	return section.encoding() == bodies.Base64
 }
 
 // IsQuotedPrintable reports whether the section body is quoted-printable
 // encoded. A missing Content-Transfer-Encoding counts as quoted-printable,
 // since some ingestion paths strip the header.
 func (section *Section) IsQuotedPrintable() bool {
-	encoding := section.Headers.Get("Content-Transfer-Encoding")
-	return encoding == "quoted-printable" || encoding == ""
+	encoding := section.encoding()
+	return encoding == bodies.QuotedPrintable || encoding == ""
 }
 
 // writeBase64 writes body wrapped at 76 characters per line, matching Blink
@@ -108,27 +118,16 @@ func writeBase64(writer io.Writer, body string) (int, error) {
 	return n, nil
 }
 
-// QuotedPrintableEncode encodes input in quoted-printable format.
+// QuotedPrintableEncode encodes input in quoted-printable format, following
+// Blink's conventions (see bodies.EncodeQuotedPrintable).
 func QuotedPrintableEncode(input string) (string, error) {
-	var buf bytes.Buffer
-	writer := quotedprintable.NewWriter(&buf)
-	if _, err := writer.Write([]byte(input)); err != nil {
-		return "", errors.Wrap(err, "failed to write quoted-printable")
-	}
-	if err := writer.Close(); err != nil {
-		return "", errors.Wrap(err, "failed to flush quoted-printable")
-	}
-
-	return buf.String(), nil
+	return bodies.EncodeQuotedPrintable(input), nil
 }
 
+// writeQuotedPrintable writes body quoted-printable encoded, followed by the
+// line break that precedes the next boundary.
 func writeQuotedPrintable(writer io.Writer, body string) (int, error) {
-	out, err := QuotedPrintableEncode(body)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to encode quoted-printable")
-	}
-
-	n, err := io.WriteString(writer, out)
+	n, err := io.WriteString(writer, bodies.EncodeQuotedPrintable(body)+"\r\n")
 	if err != nil {
 		return n, errors.Wrap(err, "failed to write quoted-printable")
 	}
