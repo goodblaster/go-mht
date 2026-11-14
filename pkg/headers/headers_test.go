@@ -109,3 +109,118 @@ func TestWriteContentLocationNotFolded(t *testing.T) {
 		t.Errorf("output = %q, want %q", buf.String(), want)
 	}
 }
+
+func TestWriteOnlyFoldsContentType(t *testing.T) {
+	var buf strings.Builder
+	if err := Write(&buf, "Subject", []string{"Foo; bar"}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if want := "Subject: Foo; bar\r\n"; buf.String() != want {
+		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+}
+
+// scanBlock scans a header block and returns the headers and their layout.
+func scanBlock(t *testing.T, block string) (textproto.MIMEHeader, *Layout) {
+	t.Helper()
+
+	scanner := bufio.NewScanner(strings.NewReader(block + "\r\n"))
+	headers := make(textproto.MIMEHeader)
+	layout, err := ScanLayout(scanner, &headers)
+	if err != nil {
+		t.Fatalf("ScanLayout error: %v", err)
+	}
+	return headers, layout
+}
+
+func writeAll(t *testing.T, headers textproto.MIMEHeader, layout *Layout) string {
+	t.Helper()
+
+	var buf strings.Builder
+	if err := WriteAll(&buf, headers, layout); err != nil {
+		t.Fatalf("WriteAll error: %v", err)
+	}
+	return buf.String()
+}
+
+func TestWriteAllReproducesSource(t *testing.T) {
+	blocks := map[string]string{
+		"blink": "From: <Saved by Blink>\r\n" +
+			"Snapshot-Content-Location: https://example.com/\r\n" +
+			"Subject: Example\r\n" +
+			"MIME-Version: 1.0\r\n" +
+			"Content-Type: multipart/related;\r\n\ttype=\"text/html\";\r\n\tboundary=\"b\"\r\n",
+		"semicolon in subject":       "Subject: Foo; bar\r\n",
+		"subject folded by blink":    "Subject: =?utf-8?Q?aaa?=\r\n =?utf-8?Q?bbb?=\r\n",
+		"content-type on one line":   "Content-Type: text/html; charset=utf-8\r\n",
+		"unusual key case":           "X-foo-BAR: 1\r\n",
+		"unusual order":              "Content-Location: https://example.com/\r\nContent-Type: text/html\r\n",
+		"repeated header":            "X-A: 1\r\nX-B: 2\r\nX-A: 3\r\n",
+		"no space after colon":       "X-A:1\r\n",
+		"extra whitespace preserved": "X-A:   1  \r\n",
+	}
+
+	for name, block := range blocks {
+		t.Run(name, func(t *testing.T) {
+			headers, layout := scanBlock(t, block)
+			if got := writeAll(t, headers, layout); got != block {
+				t.Errorf("output = %q, want %q", got, block)
+			}
+		})
+	}
+}
+
+func TestWriteAllAfterChanges(t *testing.T) {
+	const block = "Content-Type: image/png\r\n" +
+		"X-foo-BAR: keep; me\r\n" +
+		"Content-Location: https://example.com/a.png\r\n"
+
+	t.Run("changed header is regenerated in place", func(t *testing.T) {
+		headers, layout := scanBlock(t, block)
+		headers.Set("Content-Type", "image/jpeg")
+
+		want := "Content-Type: image/jpeg\r\n" +
+			"X-foo-BAR: keep; me\r\n" +
+			"Content-Location: https://example.com/a.png\r\n"
+		if got := writeAll(t, headers, layout); got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("new header takes its Blink position", func(t *testing.T) {
+		headers, layout := scanBlock(t, block)
+		headers.Set("Content-Transfer-Encoding", "base64")
+		headers.Set("X-New", "1")
+
+		want := "Content-Type: image/png\r\n" +
+			"X-foo-BAR: keep; me\r\n" +
+			"Content-Transfer-Encoding: base64\r\n" +
+			"Content-Location: https://example.com/a.png\r\n" +
+			"X-New: 1\r\n"
+		if got := writeAll(t, headers, layout); got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("removed header is dropped", func(t *testing.T) {
+		headers, layout := scanBlock(t, block)
+		headers.Del("X-Foo-Bar")
+
+		want := "Content-Type: image/png\r\n" +
+			"Content-Location: https://example.com/a.png\r\n"
+		if got := writeAll(t, headers, layout); got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nil layout uses Blink order", func(t *testing.T) {
+		headers, _ := scanBlock(t, block)
+
+		want := "Content-Type: image/png\r\n" +
+			"Content-Location: https://example.com/a.png\r\n" +
+			"X-Foo-Bar: keep; me\r\n"
+		if got := writeAll(t, headers, nil); got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+}

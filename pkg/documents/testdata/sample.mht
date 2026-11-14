@@ -14,14 +14,29 @@ Content-ID: <frame-0001@mhtml.blink>
 Content-Transfer-Encoding: quoted-printable
 Content-Location: https://example.com/
 
-<html>
-<head><title>Example</title></head>
+<!DOCTYPE html><html lang=3D"en"><head><meta http-equiv=3D"Content-Type" co=
+ntent=3D"text/html; charset=3DUTF-8"><link rel=3D"stylesheet" type=3D"text/=
+css" href=3D"cid:css-0001@mhtml.blink" /><title>Example Domain</title></hea=
+d>
 <body>
+<h1>Example Domain</h1>
 <p>1 + 1 =3D 2</p>
+<p>Caf=C3=A9 =E2=80=94 this paragraph is long enough that the encoder has t=
+o wrap it with soft line breaks more than once.</p>
 <img src=3D"https://example.com/pixel.png">
-</body>
-</html>
 
+</body></html>
+------MultipartBoundary--abc123XYZ----
+Content-Type: text/css
+Content-Transfer-Encoding: quoted-printable
+Content-Location: cid:css-0001@mhtml.blink
+
+@charset "utf-8";
+
+body { background-color: rgb(240, 240, 242); margin: 0px; padding: 0px; }
+
+div { width: 600px; margin: 5em auto; padding: 2em; border-radius: 0.5em; b=
+ox-shadow: rgba(0, 0, 0, 0.02) 2px 3px 7px 2px; }=0A
 ------MultipartBoundary--abc123XYZ----
 Content-Type: image/png
 Content-Transfer-Encoding: base64

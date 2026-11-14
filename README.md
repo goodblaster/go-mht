@@ -52,7 +52,7 @@ if err := doc.Write(out); err != nil {
 ### Work with images
 
 ```go
-// All image sections.
+// All image sections (pointers into the document, so edits stick).
 for _, s := range doc.ImageSections() {
     fmt.Println(s.Headers.Get("Content-Location"))
 }
@@ -60,13 +60,24 @@ for _, s := range doc.ImageSections() {
 // Decode one image by its Content-Location.
 img, format, err := doc.Image("https://example.com/logo.png")
 
-// Or grab the raw bytes.
+// Or grab the raw bytes (works for SVG too, which image.Decode can't read).
 data, err := doc.ImageBytes("https://example.com/logo.png")
 
 // Replace an image in place, then write the document back out.
 section := doc.ImageSection("https://example.com/logo.png")
 err = section.ReplaceImage("image/png", "base64", newPNGBytes)
 ```
+
+Lookups by `Content-Location` go through `doc.LocIndex`. If you add, remove,
+or reorder `doc.Sections` yourself, call `doc.Reindex()` afterwards.
+
+### What is preserved
+
+Headers you don't touch are written back exactly as they were read: same
+order, same spelling, same folding. A header you change is regenerated in
+place, and a header you add is placed where Blink would put it. Bodies are
+re-encoded with a port of Blink's own quoted-printable rules, and binary
+parts are carried through byte for byte.
 
 ### Fix a ChromeDP re-export
 
@@ -86,6 +97,10 @@ mht -o out.mht snapshot.mht          # parse and write to a file
 mht -images ./imgs -o out.mht in.mht # also extract all images
 ```
 
+Extracted images are named after the last path segment of their
+`Content-Location` (query strings dropped); name clashes get a numeric
+suffix rather than overwriting each other.
+
 Since output is byte-faithful, `mht -o out.mht in.mht && cmp in.mht out.mht`
 doubles as a check that a file survives a round trip.
 
@@ -94,10 +109,16 @@ doubles as a check that a file survives a round trip.
 - Tuned for Blink-generated MHTML (`From: <Saved by Blink>`). Files from
   other producers (e.g. Word, IE) may parse, but byte-identical output is
   only expected for Blink conventions.
-- Supported transfer encodings: `quoted-printable` (the default when the
-  header is absent) and `base64`; other encodings are passed through
-  unchanged.
-- Line endings are expected to be CRLF, as Blink produces.
+- Supported transfer encodings: `quoted-printable` and `base64`; other
+  encodings (`7bit`, `8bit`, `binary`) are passed through unchanged.
+- A part with no `Content-Transfer-Encoding` header is read as
+  quoted-printable if it decodes cleanly and kept verbatim otherwise. Either
+  way it is written back as quoted-printable with the header added, so such
+  a part is not byte-identical after a round trip.
+- Line endings are expected to be CRLF, as Blink produces. LF-only files
+  parse, but headers and text parts are written back with CRLF.
+- Base64 bodies are re-wrapped at 76 columns, and the preamble before the
+  first boundary is written as a single blank line, both as Blink does.
 
 ## License
 

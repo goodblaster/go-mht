@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/goodblaster/errors"
+	"github.com/goodblaster/go-mht/internal/lines"
 	"github.com/goodblaster/go-mht/pkg/headers"
 	"github.com/goodblaster/go-mht/pkg/sections"
 )
@@ -23,10 +24,15 @@ func Parse(reader io.Reader) (*Document, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), maxLineSize)
 
+	// Keep line terminators so that binary parts survive byte for byte.
+	scanner.Split(lines.Split)
+
 	// Top-level document headers.
-	if err := headers.Scan(scanner, &doc.Headers); err != nil {
+	layout, err := headers.ScanLayout(scanner, &doc.Headers)
+	if err != nil {
 		return nil, errors.Wrap(err, "failed to scan document headers")
 	}
+	doc.layout = layout
 
 	_, params, err := mime.ParseMediaType(doc.Headers.Get("Content-Type"))
 	if err != nil {
@@ -56,10 +62,14 @@ func Parse(reader io.Reader) (*Document, error) {
 			return nil, err
 		}
 
-		doc.Sections = append(doc.Sections, *section)
-		doc.LocIndex[section.Headers.Get("Content-Location")] = section
+		// A boundary followed by nothing (a file cut off right after one,
+		// or a missing closing boundary) is not a section.
+		if len(section.Headers) > 0 || section.Body != "" {
+			doc.Sections = append(doc.Sections, *section)
+		}
 
 		if errors.Is(err, io.EOF) {
+			doc.Reindex()
 			return doc, nil
 		}
 	}
@@ -81,7 +91,7 @@ func ParseFile(filename string) (*Document, error) {
 // input.
 func (doc *Document) FindBoundary(scanner *bufio.Scanner, boundary string) error {
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := lines.Trim(scanner.Text())
 		if line == boundary {
 			return nil
 		}
@@ -102,13 +112,8 @@ func (doc *Document) FindBoundary(scanner *bufio.Scanner, boundary string) error
 // to the input.
 func (doc *Document) Write(writer io.Writer) error {
 	// Document headers.
-	if err := headers.Ordered(doc.Headers, func(key string, values []string) error {
-		if err := headers.Write(writer, key, values); err != nil {
-			return errors.Wrap(err, "failed to write headers")
-		}
-		return nil
-	}); err != nil {
-		return err
+	if err := headers.WriteAll(writer, doc.Headers, doc.layout); err != nil {
+		return errors.Wrap(err, "failed to write headers")
 	}
 
 	// Header terminator plus the blank line before the first boundary.

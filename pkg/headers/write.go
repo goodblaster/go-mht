@@ -7,12 +7,13 @@ import (
 	"github.com/goodblaster/errors"
 )
 
-// Write writes one header (all of its values) to writer, re-folding each
-// value at semicolon boundaries the way Blink does. Content-Location values
-// are never folded, since URLs may legitimately contain semicolons.
+// Write writes one header (all of its values) to writer. Content-Type values
+// are folded at their parameters the way Blink does; every other header is
+// written on a single line, since a semicolon in a page title or a URL is
+// not a place to fold.
 func Write(writer io.Writer, key string, values []string) error {
 	for _, value := range values {
-		if !strings.EqualFold(key, "Content-Location") {
+		if strings.EqualFold(key, "Content-Type") {
 			value = fold(value)
 		}
 		if _, err := io.WriteString(writer, key+": "+value+"\r\n"); err != nil {

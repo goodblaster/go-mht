@@ -6,6 +6,7 @@ package documents
 import (
 	"net/textproto"
 
+	"github.com/goodblaster/go-mht/pkg/headers"
 	"github.com/goodblaster/go-mht/pkg/sections"
 )
 
@@ -17,6 +18,21 @@ type Document struct {
 	Headers  textproto.MIMEHeader
 	Sections []sections.Section
 	LocIndex map[string]*sections.Section
+
+	// layout remembers how the top-level headers were written in the
+	// source so that untouched headers are written back byte for byte.
+	layout *headers.Layout
+}
+
+// Reindex rebuilds LocIndex so that it points at the elements of Sections.
+// Parse calls it for you; call it again after adding, removing, or
+// reordering sections, since those operations invalidate the pointers.
+func (doc *Document) Reindex() {
+	doc.LocIndex = make(map[string]*sections.Section, len(doc.Sections))
+	for i := range doc.Sections {
+		section := &doc.Sections[i]
+		doc.LocIndex[section.Headers.Get("Content-Location")] = section
+	}
 }
 
 // New returns an empty Document with initialized headers and indexes.

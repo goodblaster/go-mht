@@ -9,9 +9,12 @@ import (
 )
 
 // ImageSections returns every section whose Content-Type is an image type.
-func (doc *Document) ImageSections() []sections.Section {
-	var sectionList []sections.Section
-	for _, section := range doc.Sections {
+// The pointers refer to the document's own sections, so changes made through
+// them (e.g. ReplaceImage) are reflected when the document is written.
+func (doc *Document) ImageSections() []*sections.Section {
+	var sectionList []*sections.Section
+	for i := range doc.Sections {
+		section := &doc.Sections[i]
 		if strings.HasPrefix(section.Headers.Get("Content-Type"), "image/") {
 			sectionList = append(sectionList, section)
 		}
